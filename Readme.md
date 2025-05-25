@@ -1,6 +1,6 @@
 # 🚀 Marketing Campaign Analysis 🚀
 
-![Marketing Campaign Banner](src/banner_logo.jpg)
+![Marketing Campaign Banner](img\banner_logo.jpg)
 
 ## 📋 Overview
 
