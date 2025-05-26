@@ -10,6 +10,11 @@ import matplotlib.cm as cm
 from matplotlib.colors import LinearSegmentedColormap
 import plotly.express as px
 import plotly.graph_objects as go
+from sklearn.linear_model import LinearRegression
+import numpy as np
+from scipy import stats
+
+
 
 # Page configuration
 st.set_page_config(
@@ -233,6 +238,19 @@ data = load_data()
 
 # Clean and preprocess data (similar to the notebook)
 def preprocess_data(df):
+    # Tratar casos específicos de datos negativos como valores faltantes
+    mask_negative_budget = df['campaign_name'] == "Negative ROI test"
+    mask_negative_revenue = df['campaign_name'] == "Negative Revenue test"
+
+    # Reemplazar valores negativos por NaN
+    if mask_negative_budget.any():
+        df.loc[mask_negative_budget, 'budget'] = np.nan
+        print(f"Reemplazado presupuesto negativo en campaña 'Negative ROI test' por NaN")
+
+    if mask_negative_revenue.any():
+        df.loc[mask_negative_revenue, 'revenue'] = np.nan
+        print(f"Reemplazado ingreso negativo en campaña 'Negative Revenue test' por NaN")
+
     # Convert date columns to datetime
     df['start_date'] = pd.to_datetime(df['start_date'], errors='coerce')
     df['end_date'] = pd.to_datetime(df['end_date'], errors='coerce')
@@ -250,6 +268,15 @@ def preprocess_data(df):
     df['net_profit'] = df['revenue'] - df['budget']
     df['profit_margin'] = (df['net_profit'] / df['revenue'] * 100).round(2)
     
+    # Identificar y tratar el caso específico de "Too many conversions"
+    mask_too_many_conversions = df['campaign_name'] == "Too many conversions"
+
+# Reemplazar valores de conversión excesivos
+    if mask_too_many_conversions.any():
+        df.loc[mask_too_many_conversions, 'conversion_rate'] = 1.0
+        print(f"Ajustada tasa de conversión para la campaña 'Too many conversions' al valor máximo de 1.0")
+
+
     # Handle missing values with median imputation
     for col in numeric_cols:
         df[col] = df[col].fillna(df[col].median())
@@ -287,7 +314,25 @@ def preprocess_data(df):
         'b2b': 'B2B', 'b2c': 'B2C', 
         'BtoB': 'B2B', 'BtoC': 'B2C'
     })
-    
+
+    df = df[~((df['campaign_name'] == 'Outlier Budget') & (df['channel'] == 'promotion'))]
+    print(f"Se ha eliminado la campaña 'Outlier Budget' del canal 'promotion' por tener un presupuesto atípico extremo.")
+
+    # Limit negative values and percentage ranges
+
+    df['budget'] = df['budget'].clip(lower=0)
+    df['revenue'] = df['revenue'].clip(lower=0)
+    df['roi'] = df['roi'].clip(lower=0)
+    df['conversion_rate'] = df['conversion_rate'].clip(lower=0, upper=1)
+    df['net_profit'] = df['net_profit'].clip(lower=0)
+    df['profit_margin'] = df['profit_margin'].clip(lower=0, upper=100)
+    df['revenue_efficiency'] = df['revenue_efficiency'].clip(lower=0)
+    df['campaign_duration'] = df['campaign_duration'].clip(lower=0)
+  
+
+
+
+
     return df
 
 # Apply preprocessing
@@ -317,7 +362,7 @@ def get_channel_color(channel):
 
 # Hero section with banner
 if banner is not None:
-    st.image(banner, use_column_width=True)
+    st.image(banner, use_container_width=True)
 
 st.markdown("""
 <div class="hero">
@@ -377,33 +422,33 @@ with tab1:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.markdown("### Valores Faltantes (Antes)")
+            st.markdown("### Valores Faltantes por Columna (Antes de la limpieza)")
             # Calculate missing values before cleaning
             missing_values_before = {
-                'start_date': 3,
-                'end_date': 3,
-                'budget': 4,
-                'roi': 4,
-                'type': 1,
-                'target_audience': 2,
-                'channel': 1,
-                'conversion_rate': 4,
-                'revenue': 3,
-                'duracion_campaña': 5,
-                'eficiencia_ingresos': 6
+            'start_date': 3,
+            'end_date': 3,
+            'budget': 4,
+            'roi': 4,
+            'type': 1,
+            'target_audience': 2,
+            'channel': 1,
+            'conversion_rate': 4,
+            'revenue': 3,
+            'duracion_campaña': 5,
+            'eficiencia_ingresos': 6
             }
             
             missing_df = pd.DataFrame({
-                'Columna': list(missing_values_before.keys()),
-                'Valores Faltantes': list(missing_values_before.values())
+            'Columna': list(missing_values_before.keys()),
+            'Valores Faltantes': list(missing_values_before.values())
             })
             
-            # Plot missing values before
-            fig, ax = plt.subplots(figsize=(8, 6), facecolor=DARK_BG)
+            # Plot missing values before - increased figure width
+            fig, ax = plt.subplots(figsize=(10, 6), facecolor=DARK_BG)
             ax.set_facecolor(MEDIUM_BG)
             bars = ax.barh(missing_df['Columna'], missing_df['Valores Faltantes'], color=ACCENT_COLOR)
             ax.set_xlabel('Cantidad de Valores Faltantes', color='white')
-            ax.set_title('Valores Faltantes por Columna (Antes)', color='white', fontweight='bold')
+            ax.set_title(' ', color='white', fontweight='bold')
             
             # Set colors for spines, ticks, labels
             ax.spines['bottom'].set_color('white')
@@ -417,60 +462,54 @@ with tab1:
             for i, bar in enumerate(bars):
                 width = bar.get_width()
                 ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                        f'{width}', ha='left', va='center', color='white')
-                
+                    f'{width}', ha='left', va='center', color='white')
+            
             plt.tight_layout()
             st.pyplot(fig)
+        
+        # Adding empty space between columns to maximize separation
+        st.markdown("<div style='width:100%; padding:10px;'></div>", unsafe_allow_html=True)
         
         with col2:
-            st.markdown("### Valores Faltantes (Después)")
+            # Adding padding to improve separation
+            st.markdown("""
+            <div style="padding-left:25px;">
+            <h3>Problemas Identificados:</h3>
             
-            # Plot missing values after (all zeros)
-            missing_after = pd.DataFrame({
-                'Columna': list(missing_values_before.keys()),
-                'Valores Faltantes': [0] * len(missing_values_before)
-            })
-            
-            fig, ax = plt.subplots(figsize=(8, 6), facecolor=DARK_BG)
-            ax.set_facecolor(MEDIUM_BG)
-            bars = ax.barh(missing_after['Columna'], missing_after['Valores Faltantes'], color='#2ecc71')
-            ax.set_xlabel('Cantidad de Valores Faltantes', color='white')
-            ax.set_title('Valores Faltantes por Columna (Después)', color='white', fontweight='bold')
-            
-            # Set colors for spines, ticks, labels
-            ax.spines['bottom'].set_color('white')
-            ax.spines['left'].set_color('white')
-            ax.spines['top'].set_color('white')
-            ax.spines['right'].set_color('white')
-            ax.tick_params(axis='x', colors='white')
-            ax.tick_params(axis='y', colors='white')
-                
-            plt.tight_layout()
-            st.pyplot(fig)
-        
-        st.markdown("""
-        ### Problemas Identificados:
-        
-        - ❗ **Valores Faltantes**: Presentes en múltiples columnas como presupuesto, ROI, fechas
-        - 🔄 **Tipos de Datos Incorrectos**: Fechas y números almacenados como texto
-        - ⚠️ **Inconsistencias**: Fechas invertidas, tasas de conversión mayores a 1, etc.
-        - 📉 **Valores Atípicos**: Presupuestos e ingresos extremadamente altos
-        """)
-        
-        st.markdown("""
-        ### Proceso de Limpieza:
-        
-        - ✅ **Formateo de Tipos**: Conversión a los tipos de datos correctos:
-          - `datetime64[ns]` para fechas
-          - `float64` para métricas numéricas
-        - 🔄 **Corrección de Fechas Invertidas**: Intercambio de fechas para asegurar duraciones positivas
-        - 📊 **Imputación de Valores Faltantes**:
-          - Columnas numéricas: Imputadas con la mediana para minimizar el impacto de valores atípicos
-          - Columnas categóricas: Asignado "unknown" a los campos vacíos
-          - Fechas: Estimadas usando la duración mediana de campañas
-        - 📈 **Limitación de Valores Ilógicos**:
-          - Tasas de conversión limitadas a un máximo de 1.0 (100%)
-        """)
+            <ul>
+                <li>❗ <strong>Valores Faltantes</strong>: Presentes en múltiples columnas como presupuesto, ROI, fechas</li>
+                <li>🔄 <strong>Tipos de Datos Incorrectos</strong>: Fechas y números almacenados como texto</li>
+                <li>⚠️ <strong>Inconsistencias</strong>: Fechas invertidas, tasas de conversión mayores a 1, etc.</li>
+                <li>📉 <strong>Valores Atípicos</strong>: Presupuestos e ingresos extremadamente altos</li>
+                <li>📌 <strong>**Nota**</strong>: Se ha excluido la campaña 'Outlier Budget' del canal 'promotion' debido a un presupuesto extremadamente alto (9,999,999) que distorsionaba los análisis.</li>        
+            </ul>
+
+            <h3>Proceso de Limpieza:</h3>
+
+            <ul>
+                <li>✅ <strong>Formateo de Tipos</strong>: Conversión a los tipos de datos correctos:
+                <ul>
+                    <li><code>datetime64[ns]</code> para fechas</li>
+                    <li><code>float64</code> para métricas numéricas</li>
+                </ul>
+                </li>
+                <li>🔄 <strong>Corrección de Fechas Invertidas</strong>: Intercambio de fechas para asegurar duraciones positivas</li>
+                <li>📊 <strong>Imputación de Valores Faltantes</strong>:
+                <ul>
+                    <li>Columnas numéricas: Imputadas con la mediana para minimizar el impacto de valores atípicos</li>
+                    <li>Columnas categóricas: Asignado "unknown" a los campos vacíos</li>
+                    <li>Fechas: Estimadas usando la duración mediana de campañas</li>
+                </ul>
+                </li>
+                <li>📈 <strong>Limitación de Valores Ilógicos</strong>:
+                <ul>
+                    <li>Tasas de conversión limitadas a un máximo de 1.0 (100%)</li>
+                </ul>
+                </li>
+            </ul>
+            </div>
+            """, unsafe_allow_html=True)
+  
 
     with subtab1_3:
         st.markdown("""
@@ -535,8 +574,8 @@ with tab1:
         })
         
         st.dataframe(calculated_features, use_container_width=True, hide_index=True)
-        
-        st.markdown("### Dataset Limpio y Procesado")
+
+        st.markdown("### Muestra del dataset una vez limpio y procesado (10 filas)")
         st.dataframe(data.head(10), use_container_width=True)
         
         st.markdown("""
@@ -546,6 +585,8 @@ with tab1:
         - 📆 **Fechas consistentes**: Todas las campañas tienen ahora duración positiva
         - 📊 **Métricas coherentes**: Tasas de conversión en el rango lógico (0-100%)
         - 📈 **Análisis enriquecido**: Nuevas métricas calculadas para evaluar rendimiento
+        - 🔍 **Control de valores atípicos**: Eliminación de campañas con presupuestos extremos que distorsionaban el análisis
+        - 📉 **Corrección de valores negativos**: Tratamiento de ingresos y presupuestos negativos para mantener la consistencia de datos
         """)
 
 # Tab 2: Exploratory Data Analysis
@@ -569,7 +610,7 @@ with tab2:
         col1, col2 = st.columns([3, 2])
         
         with col1:
-            st.markdown("### Canales más Utilizados")
+            st.markdown("### Canales de Marketing más Utilizados")
             
             # Count frequency of each channel
             channel_counts = data['channel'].value_counts().reset_index()
@@ -581,7 +622,7 @@ with tab2:
                 x='channel',
                 y='count',
                 color='channel',
-                title='Canales de Marketing más Utilizados',
+                title=' ',
                 labels={'count': 'Número de Campañas', 'channel': 'Canal de Marketing'},
                 color_discrete_sequence=px.colors.sequential.Viridis
             )
@@ -631,7 +672,7 @@ with tab2:
                 x='roi',
                 orientation='h',
                 color='roi',
-                title='ROI Promedio por Canal',
+                title=' ',
                 labels={'roi': 'ROI Promedio', 'channel': 'Canal de Marketing'},
                 color_continuous_scale=px.colors.sequential.Viridis
             )
@@ -666,7 +707,7 @@ with tab2:
             st.plotly_chart(fig, use_container_width=True)
         
         # Second part of the analysis: budget vs revenue by channel
-        st.markdown("### Presupuesto e Ingresos Medios por Canal")
+        st.markdown("<h3 style='text-align: center;'>Presupuesto e Ingresos Medios por Canal</h3>", unsafe_allow_html=True)
         
         # Prepare data
         channel_stats = data.groupby('channel').agg({
@@ -692,7 +733,7 @@ with tab2:
                               label='Ingreso Medio ($)', color='#f39c12')
         
         # Add title and labels
-        ax.set_title('Presupuesto e Ingresos Medios por Canal de Marketing', 
+        ax.set_title(' ', 
                      fontsize=16, color='white', fontweight='bold')
         ax.set_xlabel('Canal de Marketing', fontsize=12, color='white')
         ax.set_ylabel('Monto ($)', fontsize=12, color='white')
@@ -735,28 +776,51 @@ with tab2:
         
         # Show plot
         st.pyplot(fig)
-        
+
+        # Calcular estadísticas actualizadas
+        email_roi = data[data['channel'] == 'Email']['roi'].mean()
+        social_media_revenue = data[data['channel'] == 'Social Media']['revenue'].mean()
+        social_media_budget = data[data['channel'] == 'Social Media']['budget'].mean()
+        tv_revenue = data[data['channel'] == 'TV']['revenue'].mean()
+        tv_budget = data[data['channel'] == 'TV']['budget'].mean()
+
         # Insights
-        st.markdown("""
+        st.markdown(f"""
         <div class="conclusion">
             <h3>📈 Hallazgos sobre Canales</h3>
             <ul>
-                <li><strong>Email Marketing</strong> destaca como el canal más <strong>costo-efectivo</strong>, generando altos ingresos con inversiones relativamente bajas (ROI promedio: 1.96)</li>
-                <li><strong>Social Media</strong> genera los <strong>mayores ingresos medios</strong> ($55,222) pero también utiliza el <strong>mayor presupuesto medio</strong> ($28,742)</li>
-                <li><strong>TV</strong> presenta el <strong>menor retorno</strong> en términos de ingresos absolutos ($40,417)</li>
+                <li><strong>Email Marketing</strong> destaca como el canal más <strong>costo-efectivo</strong>, generando altos ingresos con inversiones relativamente bajas (ROI promedio: {email_roi:.2f})</li>
+                <li><strong>Social Media</strong> genera los <strong>mayores ingresos medios</strong> (${social_media_revenue:,.0f}) pero también utiliza el <strong>mayor presupuesto medio</strong> (${social_media_budget:,.0f})</li>
+                <li><strong>TV</strong> presenta el <strong>menor retorno</strong> en términos de ingresos absolutos (${tv_revenue:,.0f})</li>
                 <li>Existe una <strong>correlación positiva</strong> entre presupuesto e ingresos, pero no es proporcional en todos los canales</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
     with subtab2_2:
-        st.markdown("""
-        <div class="insight-card">
-            <h3>Análisis por Audiencia Objetivo</h3>
-            <p>Examinamos cómo se comportan las campañas según el segmento al que están dirigidas, identificando diferencias en rendimiento y eficiencia.</p>
+        b2b_mean = data[data['target_audience'] == 'B2B']['conversion_rate'].mean()
+        b2c_mean = data[data['target_audience'] == 'B2C']['conversion_rate'].mean()
+        professionals_revenue = data[data['target_audience'] == 'B2B']['revenue'].mean()
+        students_efficiency = data[data['target_audience'] == 'Students']['revenue_efficiency'].mean() if 'Students' in data['target_audience'].unique() else 0
+        young_adults_roi = data[data['target_audience'] == 'Young Adults']['roi'].mean() if 'Young Adults' in data['target_audience'].unique() else 0
+        seniors_revenue = data[data['target_audience'] == 'Seniors']['revenue'].mean() if 'Seniors' in data['target_audience'].unique() else 0
+
+        # Actualizar el markdown de hallazgos para usar valores dinámicos
+        st.markdown(f"""                    
+        <div class="conclusion">
+            <h3>📈 Hallazgos sobre Audiencias</h3>
+            <ul>
+                <li><strong>B2B</strong> muestra mayor consistencia en resultados (menor desviación estándar)</li>
+                <li><strong>B2C</strong> tiene una tasa de conversión ligeramente superior (aproximadamente {b2c_mean:.2f} vs {b2b_mean:.2f})</li>
+                <li>La diferencia entre ambos segmentos no es estadísticamente significativa</li>
+                <li><strong>Profesionales (B2B)</strong> generan los <strong>ingresos más altos</strong> (${professionals_revenue:,.0f})</li>
+                <li><strong>Estudiantes</strong> muestran la <strong>mejor eficiencia de ingresos</strong> ({students_efficiency:.2f})</li>
+                <li><strong>Adultos jóvenes</strong> presentan el <strong>mejor ROI</strong> ({young_adults_roi:.2f})</li>
+                <li><strong>Seniors</strong> generan los <strong>menores ingresos</strong> (${seniors_revenue:,.0f}) a pesar de recibir presupuestos considerables</li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+            
         # First section: metrics by audience
         audience_stats = data.groupby('target_audience').agg({
             'budget': 'mean',
@@ -816,7 +880,7 @@ with tab2:
             means = [b2b_stats['mean'], b2c_stats['mean']]
             stds = [b2b_stats['std'], b2c_stats['std']]
             
-            colors = ['#3498db', '#e74c3c']
+            colors = ['#4adeee', '#f39c12']  # Eliminando el carácter 'b' extra al final
             bar_positions = np.arange(len(segments))
             bars = ax.bar(bar_positions, means, yerr=stds, capsize=10, 
                          color=colors, alpha=0.8, edgecolor='white', linewidth=1)
@@ -861,9 +925,9 @@ with tab2:
             boxplot_data = [b2b_data['conversion_rate'], b2c_data['conversion_rate']]
             
             box = ax.boxplot(boxplot_data, patch_artist=True, 
-                           labels=segments,
-                           widths=0.6,
-                           flierprops={'marker': 'o', 'markersize': 8, 'markerfacecolor': 'white'})
+                tick_labels=segments,  # Cambiado de 'labels' a 'tick_labels'
+                widths=0.6,
+                flierprops={'marker': 'o', 'markersize': 8, 'markerfacecolor': 'white'})
             
             # Customize boxplot colors
             for i, patch in enumerate(box['boxes']):
@@ -928,10 +992,62 @@ with tab2:
         """, unsafe_allow_html=True)
         
     with subtab2_3:
-        st.markdown("""
-        <div class="insight-card">
-            <h3>Análisis por Tipo de Campaña</h3>
-            <p>Evaluamos el rendimiento de diferentes tipos de campañas para identificar cuáles generan mayores ingresos y mejores retornos sobre la inversión.</p>
+        # Calcular métricas para cada tipo de campaña
+        awareness_stats = data[data['type'] == 'Awareness'].agg({
+            'revenue': 'mean',
+            'net_profit': 'mean',
+            'roi': 'mean',
+            'conversion_rate': 'mean',
+            'profit_margin': 'mean'
+        }).to_dict()
+        
+        conversion_stats = data[data['type'] == 'Conversion'].agg({
+            'revenue': 'mean',
+            'net_profit': 'mean',
+            'roi': 'mean',
+            'conversion_rate': 'mean',
+            'profit_margin': 'mean'
+        }).to_dict()
+        
+        retention_stats = data[data['type'] == 'Retention'].agg({
+            'revenue': 'mean',
+            'net_profit': 'mean',
+            'roi': 'mean',
+            'conversion_rate': 'mean',
+            'profit_margin': 'mean'
+        }).to_dict()
+        
+        # Actualizar el markdown con valores dinámicos
+        st.markdown(f"""
+        <div class="conclusion">
+        <h3>📈 Hallazgos por Tipo de Campaña</h3>
+        <h4>🥇 Campañas de Awareness (${awareness_stats['revenue']:,.0f})</h4>
+        <ul>
+        <li><strong>Mayor generador de ingresos promedio</strong></li>
+        <li><strong>Mayor beneficio neto medio</strong>: ${awareness_stats['net_profit']:,.0f}</li>
+        <li>ROI de {awareness_stats['roi']:.2f}</li>
+        <li>Tasa de conversión del {awareness_stats['conversion_rate']*100:.1f}% (la más baja entre las categorías)</li>
+        <li>Margen de beneficio del {awareness_stats['profit_margin']:.1f}%</li>
+        </ul>
+        
+        <h4>🥈 Campañas de Conversion (${conversion_stats['revenue']:,.0f})</h4>
+        <ul>
+        <li>Segundo lugar en ingresos promedio</li>
+        <li>Beneficio neto medio: ${conversion_stats['net_profit']:,.0f}</li>
+        <li><strong>Mejor ROI</strong> ({conversion_stats['roi']:.2f})</li>
+        <li><strong>Mayor tasa de conversión</strong> ({conversion_stats['conversion_rate']*100:.1f}%)</li>
+        <li><strong>Mejor margen de beneficio</strong>: {conversion_stats['profit_margin']:.1f}%</li>
+        </ul>
+        
+        <h4>🥉 Campañas de Retention (${retention_stats['revenue']:,.0f})</h4>
+        <ul>
+        <li>Tercer lugar en ingresos promedio</li>
+        <li>Beneficio neto medio: ${retention_stats['net_profit']:,.0f} (el más bajo)</li>
+        <li>ROI intermedio de {retention_stats['roi']:.2f}</li>
+        <li>Buena tasa de conversión ({retention_stats['conversion_rate']*100:.1f}%)</li>
+        <li><strong>Mayor número de campañas</strong></li>
+        <li>Margen de beneficio más bajo: {retention_stats['profit_margin']:.1f}%</li>
+        </ul>
         </div>
         """, unsafe_allow_html=True)
         
@@ -962,7 +1078,7 @@ with tab2:
             marker_color='#f39c12',
             text=[f'${val:,.0f}' for val in campaign_type_stats['revenue']],
             textposition='outside',
-            width=0.25
+            width=0.2  # Reduced from 0.25 for more space between bars
         ))
         
         fig.add_trace(go.Bar(
@@ -972,7 +1088,7 @@ with tab2:
             marker_color='#00bc8c',
             text=[f'${val:,.0f}' for val in campaign_type_stats['budget']],
             textposition='outside',
-            width=0.25
+            width=0.2  # Reduced from 0.25 for more space between bars
         ))
         
         fig.add_trace(go.Bar(
@@ -982,12 +1098,12 @@ with tab2:
             marker_color='#3498db',
             text=[f'${val:,.0f}' for val in campaign_type_stats['net_profit']],
             textposition='outside',
-            width=0.25
+            width=0.2  # Reduced from 0.25 for more space between bars
         ))
         
-        # Update layout
+        # Update layout with increased margins
         fig.update_layout(
-            title='Ingresos, Presupuestos y Beneficio Neto por Tipo de Campaña',
+            title=' ',
             xaxis_title='Tipo de Campaña',
             yaxis_title='Monto ($)',
             barmode='group',
@@ -996,9 +1112,20 @@ with tab2:
             font_color='white',
             title_font_color=ACCENT_COLOR,
             legend_title_font_color='white',
-            hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
+            hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+            margin=dict(l=50, r=50, t=30, b=50),  # Added explicit margins
+            xaxis=dict(
+                tickangle=-45,  # Angled labels for better readability
+                tickfont=dict(size=12),  # Adjusted text size
+                automargin=True  # Ensures margin is automatically adjusted if needed
+            ),
+            yaxis=dict(
+                tickfont=dict(size=12),  # Adjusted text size
+                automargin=True  # Ensures margin is automatically adjusted if needed
+            )
         )
         
+        # Display the figure
         st.plotly_chart(fig, use_container_width=True)
         
         # Display metrics table
@@ -1019,73 +1146,95 @@ with tab2:
         
         st.dataframe(type_stats_display, use_container_width=True, hide_index=True)
         
-        # Campaigns by Type visualization
+        # Campaigns by Type visualization with findings side by side
         st.markdown("### Distribución de Campañas por Tipo")
         
-        # Create a pie chart
-        type_counts = data['type'].value_counts().reset_index()
-        type_counts.columns = ['type', 'count']
+        # Create a custom container with CSS flexbox for alignment
+        st.markdown("""
+            <div style="display: flex; justify-content: space-between; align-items: flex-end ; gap: 20px;">
+            <div style="flex: 1;">
+                <div id="pie-chart-container"></div>
+            </div>
+            <div style="flex: 1;">
+                <div id="findings-container"></div>
+            </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Create column layout (we'll still use these for the content)
+        col_chart, col_findings = st.columns([1, 1])
         
-        fig = px.pie(
+        with col_chart:
+            # Create a pie chart
+            type_counts = data['type'].value_counts().reset_index()
+            type_counts.columns = ['type', 'count']
+            
+            fig = px.pie(
             type_counts,
             values='count',
             names='type',
-            title='Distribución de Campañas por Tipo',
+            title=' ',
             color_discrete_sequence=px.colors.sequential.Viridis,
-            hole=0.4
-        )
-        
-        # Update layout for dark theme
-        fig.update_layout(
+            hole=0.4,
+            height=400  # Set explicit height to match findings text box
+            )
+            
+            # Update layout for dark theme
+            fig.update_layout(
             plot_bgcolor=MEDIUM_BG,
             paper_bgcolor=MEDIUM_BG,
             font_color='white',
             title_font_color=ACCENT_COLOR,
             legend_title_font_color='white',
-            hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
-        )
-        
-        # Update traces for better readability
-        fig.update_traces(
+            hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+            margin=dict(t=20, b=20, l=20, r=20)  # Add margins around the chart
+            )
+            
+            # Update traces for better readability
+            fig.update_traces(
             textinfo='percent+label',
             textfont_color='white'
-        )
+            )
+            
+            # Wrap with a container for consistent height
+            with st.container():
+                st.plotly_chart(fig, use_container_width=True)
         
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Insights
-        st.markdown("""
-        <div class="conclusion">
+         
+        # Insights in the right column
+        with col_findings:
+            st.markdown("""
+            <div class="conclusion">
             <h3>📈 Hallazgos por Tipo de Campaña</h3>
             <h4>🥇 Campañas de Awareness ($53,909)</h4>
             <ul>
-                <li><strong>Mayor generador de ingresos promedio</strong></li>
-                <li><strong>Mayor beneficio neto medio</strong>: $27,470</li>
-                <li>ROI de 1.63</li>
-                <li>Tasa de conversión del 47.7% (la más baja entre las categorías)</li>
-                <li>Margen de beneficio del 23.2%</li>
+            <li><strong>Mayor generador de ingresos promedio</strong></li>
+            <li><strong>Mayor beneficio neto medio</strong>: $27,470</li>
+            <li>ROI de 1.63</li>
+            <li>Tasa de conversión del 47.7% (la más baja entre las categorías)</li>
+            <li>Margen de beneficio del 23.2%</li>
             </ul>
             
             <h4>🥈 Campañas de Conversion ($49,844)</h4>
             <ul>
-                <li>Segundo lugar en ingresos promedio</li>
-                <li>Beneficio neto medio: $26,734</li>
-                <li><strong>Mejor ROI</strong> (1.94)</li>
-                <li><strong>Mayor tasa de conversión</strong> (59.7%)</li>
-                <li><strong>Mejor margen de beneficio</strong>: 33.4%</li>
+            <li>Segundo lugar en ingresos promedio</li>
+            <li>Beneficio neto medio: $26,734</li>
+            <li><strong>Mejor ROI</strong> (1.94)</li>
+            <li><strong>Mayor tasa de conversión</strong> (59.7%)</li>
+            <li><strong>Mejor margen de beneficio</strong>: 33.4%</li>
             </ul>
             
             <h4>🥉 Campañas de Retention ($45,361)</h4>
             <ul>
-                <li>Tercer lugar en ingresos promedio</li>
-                <li>Beneficio neto medio: $20,098 (el más bajo)</li>
-                <li>ROI intermedio de 1.79</li>
-                <li>Buena tasa de conversión (59.3%)</li>
-                <li><strong>Mayor número de campañas</strong></li>
-                <li>Margen de beneficio más bajo: 6.7%</li>
+            <li>Tercer lugar en ingresos promedio</li>
+            <li>Beneficio neto medio: $20,098 (el más bajo)</li>
+            <li>ROI intermedio de 1.79</li>
+            <li>Buena tasa de conversión (59.3%)</li>
+            <li><strong>Mayor número de campañas</strong></li>
+            <li>Margen de beneficio más bajo: 6.7%</li>
             </ul>
-        </div>
-        """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
 
     with subtab2_4:
         st.markdown("""
@@ -1130,7 +1279,7 @@ with tab2:
         st.markdown("### Distribución del Beneficio Neto")
         
         # Create profit bins
-        profit_bins = [-1000000, 0, 20000, 40000, 60000, 80000, 1000000]
+        profit_bins = [-1000, 0, 20000, 40000, 60000, 80000, 100000]  # Ajustado para datos sin outliers extremos
         profit_labels = ['Pérdida', '0-20K', '20K-40K', '40K-60K', '60K-80K', '80K+']
         
         data['profit_category'] = pd.cut(data['net_profit'], bins=profit_bins, labels=profit_labels)
@@ -1234,6 +1383,7 @@ with tab2:
                 <li>Las campañas <strong>Search</strong> dirigidas a <strong>Profesionales</strong> muestran comportamiento variable (aparecen tanto en el top positivo como negativo)</li>
                 <li>El segmento <strong>Seniors</strong> tiende a generar menores márgenes de beneficio</li>
                 <li>Las campañas con <strong>presupuestos muy altos</strong> (>40K) suelen tener peores márgenes o incluso pérdidas</li>
+                <li>La mayoría de las campañas (aproximadamente 40%) generan beneficios netos en el rango de 20K-40K</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1254,70 +1404,93 @@ with tab2:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Create scatter plot with regression line
-                fig = px.scatter(
-                    data,
-                    x='budget',
-                    y='revenue',
-                    color='channel',
-                    size='budget_size',  # Changed from 'budget' to 'budget_size'
-                    hover_data=['campaign_name', 'roi', 'conversion_rate', 'budget'],
-                    title='Relación entre Presupuesto e Ingresos por Canal',
-                    labels={
-                        'budget': 'Presupuesto ($)',
-                        'revenue': 'Ingresos ($)',
-                        'channel': 'Canal',
-                        'campaign_name': 'Campaña',
-                        'roi': 'ROI',
-                        'conversion_rate': 'Tasa Conversión'
-                    },
-                    trendline='ols',
-                    trendline_color_override='white',
-                    color_discrete_sequence=px.colors.sequential.Viridis
-                )
+                # Create a grouped bar chart showing average budget vs revenue by channel
+                channel_stats = data.groupby('channel').agg({
+                    'budget': 'mean',
+                    'revenue': 'mean',
+                    'roi': 'mean'
+                }).reset_index().sort_values(by='roi', ascending=False)
+                
+                # Create a simple bar chart comparing budget to revenue for each channel
+                fig = go.Figure()
+                
+                # Add budget bars
+                fig.add_trace(go.Bar(
+                    x=channel_stats['channel'],
+                    y=channel_stats['budget'],
+                    name='Presupuesto Promedio',
+                    marker_color='#00bc8c',
+                    text=[f'${val:,.0f}' for val in channel_stats['budget']],
+                    textposition='outside',
+                    offsetgroup=1
+                ))
+                
+                # Add revenue bars
+                fig.add_trace(go.Bar(
+                    x=channel_stats['channel'],
+                    y=channel_stats['revenue'],
+                    name='Ingresos Promedio',
+                    marker_color='#f39c12',
+                    text=[f'${val:,.0f}' for val in channel_stats['revenue']],
+                    textposition='outside',
+                    offsetgroup=2
+                ))
+                
+                # Add ROI as a text annotation on top of each pair of bars
+                for i, row in channel_stats.iterrows():
+                    fig.add_annotation(
+                        x=row['channel'],
+                        y=row['revenue'] + 5000,  # Position above the revenue bar
+                        text=f"ROI: {row['roi']:.2f}",
+                        showarrow=False,
+                        font=dict(color="white", size=12),
+                        bgcolor=SECONDARY_COLOR,
+                        bordercolor=ACCENT_COLOR,
+                        borderwidth=1,
+                        borderpad=4
+                    )
                 
                 # Update layout for dark theme
                 fig.update_layout(
+                    title='Presupuesto vs Ingresos por Canal (Ordenado por ROI)',
+                    xaxis_title='Canal de Marketing',
+                    yaxis_title='Monto ($)',
+                    barmode='group',
                     plot_bgcolor=MEDIUM_BG,
                     paper_bgcolor=MEDIUM_BG,
                     font_color='white',
                     title_font_color=ACCENT_COLOR,
                     legend_title_font_color='white',
-                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
+                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+                    xaxis=dict(tickangle=-45)  # Angle the x-axis labels for better readability
                 )
-                
-                # Add ROI reference lines with different colors and thicknesses
-                roi_styles = [
-                    {'roi': 1.0, 'color': '#f39c12', 'width': 1, 'dash': 'dash'},  # Orange-red, thin, dashed
-                    {'roi': 2.0, 'color': '#33FF57', 'width': 2, 'dash': 'dot'},   # Green, medium, dotted
-                    {'roi': 3.0, 'color': '#3498db', 'width': 3, 'dash': 'dashdot'} # Blue, thick, dash-dot
-                ]
-                
-                for style in roi_styles:
-                    roi = style['roi']
-                    x_vals = np.linspace(0, data['budget'].max(), 100)
-                    y_vals = roi * x_vals
-                    
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x_vals,
-                            y=y_vals,
-                            mode='lines',
-                            line=dict(
-                                color=style['color'], 
-                                width=style['width'], 
-                                dash=style['dash']
-                            ),
-                            name=f'ROI {roi}:1',
-                            hoverinfo='name'
-                        )
-                    )
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Correlation statistics
-                correlation = data['budget'].corr(data['revenue'])
-                r_squared = correlation ** 2
+                # Asegurar que tenemos valores numéricos válidos
+                budget_clean = data['budget'].dropna().astype(float)
+                revenue_clean = data['revenue'].dropna().astype(float)
+
+                # Asegurarnos de usar las mismas filas para ambas variables
+                valid_rows = budget_clean.index.intersection(revenue_clean.index)
+                budget_clean = budget_clean.loc[valid_rows]
+                revenue_clean = revenue_clean.loc[valid_rows]
+
+                # Calcular correlación y R² directamente con scipy
+                
+                correlation, p_value = stats.pearsonr(budget_clean, revenue_clean)
+                
+                # Calcular R² con sklearn para mayor precisión
+                X = budget_clean.values.reshape(-1, 1)
+                y = revenue_clean.values
+                model = LinearRegression()
+                model.fit(X, y)
+                r_squared = model.score(X, y)
+                
+                print(f"Correlación: {correlation}, R² (sklearn): {r_squared}")
+
+                print(f"Correlación: {correlation}, R²: {r_squared}")
                 
                 col1, col2 = st.columns([1, 1])
                 
@@ -1338,26 +1511,29 @@ with tab2:
                     """, unsafe_allow_html=True)
                 
                 # Correlation by channel
-                st.markdown("### Correlación por Canal")
+                st.markdown("### Correlación entre Presupuesto e Ingresos por Canal")
                 
                 channel_corrs = []
                 for channel in data['channel'].unique():
-                    channel_data = data[data['channel'] == channel]
-                    if len(channel_data) > 1:
-                        ch_corr = channel_data['budget'].corr(channel_data['revenue'])
-                        channel_corrs.append((channel, ch_corr))
+                    if channel != 'promotion':  # Excluir el canal promotion
+                        channel_data = data[data['channel'] == channel]
+                        if len(channel_data) > 1:
+                            ch_corr = channel_data['budget'].corr(channel_data['revenue'])
+                            sample_size = len(channel_data)
+                            channel_corrs.append((channel, ch_corr, sample_size))
                 
-                channel_corr_df = pd.DataFrame(channel_corrs, columns=['Canal', 'Correlación'])
+                channel_corr_df = pd.DataFrame(channel_corrs, columns=['Canal', 'Correlación', 'Tamaño Muestra'])
                 channel_corr_df = channel_corr_df.sort_values('Correlación', ascending=False)
                 
-                # Create bar chart
+                # Create bar chart with sample size information
                 fig = px.bar(
                     channel_corr_df,
                     x='Canal',
                     y='Correlación',
                     color='Correlación',
-                    title='Correlación Presupuesto-Ingresos por Canal',
-                    color_continuous_scale=px.colors.sequential.Viridis
+                    title=' ',
+                    color_continuous_scale=px.colors.sequential.Viridis,
+                    hover_data=['Tamaño Muestra']
                 )
                 
                 # Update layout for dark theme
@@ -1368,9 +1544,19 @@ with tab2:
                     title_font_color=ACCENT_COLOR,
                     hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
                     coloraxis_colorbar=dict(
-                        title=dict(text="ROI Medio", font=dict(color="white")),
+                        title=dict(text="Correlación", font=dict(color="white")),
                         tickfont=dict(color="white")
                     )
+                )
+                
+                # Add reference line for global correlation
+                fig.add_hline(
+                    y=correlation,
+                    line_dash="dash",
+                    line_color="white",
+                    annotation_text=f"Correlación global: {correlation:.2f}",
+                    annotation_position="top right",
+                    annotation_font_color="white"
                 )
                 
                 # Add value labels
@@ -1378,7 +1564,7 @@ with tab2:
                     fig.add_annotation(
                         x=row['Canal'],
                         y=row['Correlación'],
-                        text=f"{row['Correlación']:.2f}",
+                        text=f"{row['Correlación']:.2f}\n(n={row['Tamaño Muestra']})",
                         showarrow=False,
                         yshift=10,
                         font_color='white'
@@ -1386,6 +1572,69 @@ with tab2:
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # Scatter plot with trend line for budget vs revenue
+                st.markdown("### Relación Presupuesto vs Ingresos")
+                
+                # Create a grouped bar chart showing budget vs revenue by channel
+                channel_budget_revenue = data.groupby('channel').agg({
+                    'budget': 'mean',
+                    'revenue': 'mean',
+                    'roi': 'mean'
+                }).reset_index().sort_values('roi', ascending=False)
+                
+                fig = go.Figure()
+                
+                # Add bars for budget
+                fig.add_trace(go.Bar(
+                    x=channel_budget_revenue['channel'],
+                    y=channel_budget_revenue['budget'],
+                    name='Presupuesto Promedio',
+                    marker_color='#00bc8c',
+                    text=[f'${val:,.0f}' for val in channel_budget_revenue['budget']],
+                    textposition='outside'
+                ))
+                
+                # Add bars for revenue
+                fig.add_trace(go.Bar(
+                    x=channel_budget_revenue['channel'],
+                    y=channel_budget_revenue['revenue'],
+                    name='Ingresos Promedio',
+                    marker_color='#f39c12',
+                    text=[f'${val:,.0f}' for val in channel_budget_revenue['revenue']],
+                    textposition='outside'
+                ))
+                
+                # Add ROI as annotations
+                for i, row in channel_budget_revenue.iterrows():
+                    fig.add_annotation(
+                        x=row['channel'],
+                        y=max(row['revenue'], row['budget']) + 5000,
+                        text=f"ROI: {row['roi']:.2f}",
+                        showarrow=False,
+                        font=dict(color="white", size=12),
+                        bgcolor=SECONDARY_COLOR,
+                        bordercolor=ACCENT_COLOR,
+                        borderwidth=1,
+                        borderpad=4
+                    )
+                
+                fig.update_layout(
+                    title='Presupuesto vs Ingresos por Canal (Ordenado por ROI)',
+                    xaxis_title='Canal de Marketing',
+                    yaxis_title='Monto ($)',
+                    barmode='group',
+                    plot_bgcolor=MEDIUM_BG,
+                    paper_bgcolor=MEDIUM_BG,
+                    font_color='white',
+                    title_font_color=ACCENT_COLOR,
+                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+                    legend_title_font_color='white'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Add correlation info as text to maintain that insight
+                st.info(f"Correlación entre presupuesto e ingresos: {correlation:.2f} (R² = {r_squared:.2f})")
                 # Insights about budget vs revenue relationship
                 st.markdown(f"""
                 <div class="conclusion">
@@ -1403,10 +1652,21 @@ with tab2:
 
 
             with subtab3_2:
-                st.markdown("""
-                <div class="insight-card">
-                    <h3>ROI y Campañas de Alto Rendimiento</h3>
-                    <p>Identificamos las características de las campañas con mejor retorno sobre la inversión para descubrir patrones que puedan replicarse en futuras estrategias.</p>
+                # Calcular porcentaje de campañas con ROI > 1
+                roi_success_rate = (data['roi'] > 1).mean() * 100
+                max_roi = data['roi'].max()
+                
+                st.markdown(f"""
+                <div class="conclusion">
+                    <h3>💡 Hallazgos sobre Campañas de Alto ROI</h3>
+                    <ul>
+                        <li>Las campañas con mayor ROI tienden a tener <strong>presupuestos moderados</strong> (5-20K)</li>
+                        <li>Los canales <strong>Email</strong> y <strong>Social Media</strong> dirigidos a audiencia <strong>B2C</strong> generan el mayor ROI promedio</li>
+                        <li>Existe una <strong>correlación positiva</strong> entre la tasa de conversión y el ROI</li>
+                        <li>Las campañas con presupuestos pequeños pero <strong>bien dirigidas</strong> pueden alcanzar ROI superior a {max_roi:.1f}</li>
+                        <li>Las campañas de tipo <strong>Conversion</strong> generan el ROI más alto ({conversion_stats['roi']:.2f} en promedio)</li>
+                        <li>Un <strong>{roi_success_rate:.1f}%</strong> de las campañas tienen un ROI superior a 1, generando beneficio neto positivo</li>
+                    </ul>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1473,17 +1733,17 @@ with tab2:
                     columns='target_audience',
                     aggfunc='mean'
                 ).round(2)
-                
+
                 # Create heatmap with plotly
                 fig = px.imshow(
                     roi_heatmap,
-                    text_auto='.2f',
+                    text_auto=False,  # Changed from '.2f' to False to avoid auto-text on NaN
                     color_continuous_scale='Viridis',
-                    title='ROI Medio por Canal y Audiencia Objetivo',
+                    title=' ',
                     labels=dict(x="Audiencia Objetivo", y="Canal", color="ROI Medio"),
                     height=500
                 )
-                
+
                 # Update layout for dark theme
                 fig.update_layout(
                     plot_bgcolor=MEDIUM_BG,
@@ -1497,20 +1757,26 @@ with tab2:
                         tickfont=dict(color="white")
                     )
                 )
-                
-                # Add annotations with ROI values
+
+                # Custom color for NaN values
+                fig.update_traces(
+                    hoverongaps=False,  # Don't show hover info on NaN cells
+                    zhoverformat=".2f"  # Format for hover text
+                )
+
+                # Add annotations with ROI values only for non-NaN cells
                 for i, row in enumerate(roi_heatmap.index):
                     for j, col in enumerate(roi_heatmap.columns):
-                        fig.add_annotation(
-                            x=col,
-                            y=row,
-                            text=f"{roi_heatmap.iloc[i, j]:.2f}",
-                            showarrow=False,
-                            font=dict(color="white", size=14)
-                        )
-                
+                        if not pd.isna(roi_heatmap.iloc[i, j]):
+                            fig.add_annotation(
+                                x=col,
+                                y=row,
+                                text=f"{roi_heatmap.iloc[i, j]:.2f}",
+                                showarrow=False,
+                                font=dict(color="white", size=14)
+                            )
+
                 st.plotly_chart(fig, use_container_width=True)
-                
                 # Top campaigns by ROI
                 st.markdown("### Campañas con Mayor ROI")
                 
@@ -1524,50 +1790,141 @@ with tab2:
                 
                 st.dataframe(top_roi_display, use_container_width=True, hide_index=True)
                 
-                # ROI vs Conversion Rate scatterplot
-                st.markdown("### Relación entre ROI y Tasa de Conversión")
+                # ROI vs Conversion Rate
+                st.markdown("### Relación entre ROI y Tasa de Conversión por Canal")
                 
-                fig = px.scatter(
-                    data,
-                    x='conversion_rate',
-                    y='roi',
-                    color='channel',
-                    size='budget_size',  # Changed from 'budget' to 'budget_size'
-                    hover_data=['campaign_name', 'target_audience', 'revenue', 'budget'],
-                    title='ROI vs Tasa de Conversión por Canal',
-                    labels={
-                        'conversion_rate': 'Tasa de Conversión',
-                        'roi': 'ROI',
-                        'channel': 'Canal',
-                        'budget': 'Presupuesto',
-                        'campaign_name': 'Campaña',
-                        'target_audience': 'Audiencia',
-                        'revenue': 'Ingresos'
-                    },
-                    color_discrete_sequence=px.colors.sequential.Viridis
-                )
+                # Create grouped data for better visualization
+                conversion_roi_by_channel = data.groupby('channel').agg({
+                    'conversion_rate': 'mean',
+                    'roi': 'mean',
+                    'budget': 'mean',
+                    'revenue': 'mean'
+                }).reset_index().sort_values('roi', ascending=False)
+
+                # Create figure with secondary y-axis
+                fig = go.Figure()
+
+                # Add bars for ROI
+                fig.add_trace(go.Bar(
+                    x=conversion_roi_by_channel['channel'],
+                    y=conversion_roi_by_channel['roi'],
+                    name='ROI Medio',
+                    marker_color='#f39c12',
+                    text=[f"{val:.2f}" for val in conversion_roi_by_channel['roi']],
+                    textposition='outside',
+                ))
+
+                # Add bars for conversion rate on secondary y-axis
+                fig.add_trace(go.Bar(
+                    x=conversion_roi_by_channel['channel'],
+                    y=conversion_roi_by_channel['conversion_rate'],
+                    name='Tasa de Conversión',
+                    marker_color='#3498db',
+                    text=[f"{val:.1%}" for val in conversion_roi_by_channel['conversion_rate']],
+                    textposition='outside',
+                    yaxis='y2'
+                ))
+
+                # Create a heat-like color map for showing budget size
+                budget_colors = px.colors.sequential.Viridis
+                normalized_budgets = (conversion_roi_by_channel['budget'] - conversion_roi_by_channel['budget'].min()) / \
+                                     (conversion_roi_by_channel['budget'].max() - conversion_roi_by_channel['budget'].min())
+
+                # Update layout with secondary y-axis and improved formatting
+                # Create a polar chart for better differentiation between channels
+                fig = go.Figure()
                 
-                # Update layout for dark theme
+                # Create radar chart data to better visualize differences
+                fig.add_trace(go.Scatterpolar(
+                    r=conversion_roi_by_channel['roi'],
+                    theta=conversion_roi_by_channel['channel'],
+                    mode='lines+markers',
+                    name='ROI Medio',
+                    line=dict(color='#f39c12', width=3),
+                    marker=dict(size=10),
+                    fill='toself',
+                    opacity=0.7
+                ))
+                
+                # Add trace for conversion rate (scaled to be comparable with ROI)
+                fig.add_trace(go.Scatterpolar(
+                    r=conversion_roi_by_channel['conversion_rate'] * 3,  # Scale conversion rate for better visibility
+                    theta=conversion_roi_by_channel['channel'],
+                    mode='lines+markers',
+                    name='Tasa de Conversión (escalada)',
+                    line=dict(color='#3498db', width=3),
+                    marker=dict(size=10),
+                    fill='toself',
+                    opacity=0.7
+                ))
+                
+                # Update layout with radar configuration and improved formatting
                 fig.update_layout(
+                    title=' ',
+                    polar=dict(
+                        radialaxis=dict(
+                            visible=True,
+                            range=[0, max(conversion_roi_by_channel['roi'].max(), 
+                                        conversion_roi_by_channel['conversion_rate'].max() * 3) * 1.2],
+                            tickfont=dict(color="white"),
+                            gridcolor="rgba(255, 255, 255, 0.2)",
+                        ),
+                        angularaxis=dict(
+                            tickfont=dict(color="white"),
+                            gridcolor="rgba(255, 255, 255, 0.2)",
+                        ),
+                        bgcolor=MEDIUM_BG
+                    ),
                     plot_bgcolor=MEDIUM_BG,
                     paper_bgcolor=MEDIUM_BG,
                     font_color='white',
                     title_font_color=ACCENT_COLOR,
                     legend_title_font_color='white',
-                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
+                    showlegend=True,
+                    legend=dict(
+                        orientation='h',
+                        yanchor='bottom',
+                        y=1.02,
+                        xanchor='center',
+                        x=0.5
+                    ),
                 )
                 
-                # Add horizontal reference line at ROI = 1
-                fig.add_hline(
-                    y=1.0,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text="ROI = 1 (Punto de equilibrio)",
-                    annotation_position="left",
-                    annotation_font_color="white"
+                # Add annotation explaining the scaling
+                fig.add_annotation(
+                    x=0.5, y=0,
+                    text="Nota: La tasa de conversión se ha multiplicado por 3 para mejor visualización",
+                    showarrow=False,
+                    xref="paper", yref="paper",
+                    font=dict(color="white", size=12),
+                    bgcolor=SECONDARY_COLOR,
+                    bordercolor=ACCENT_COLOR,
+                    borderwidth=1,
+                    borderpad=4,
+                    opacity=0.8
                 )
-                
+
+                # Add a table below showing budget amount in a more clear format
+                budget_df = conversion_roi_by_channel[['channel', 'budget']].copy()
+                budget_df.columns = ['Canal', 'Presupuesto Medio']
+                budget_df['Presupuesto Medio'] = budget_df['Presupuesto Medio'].map('${:,.0f}'.format)
+
                 st.plotly_chart(fig, use_container_width=True)
+
+                # Add small budget table for clarity
+                st.markdown("#### Presupuesto Medio por Canal")
+                st.dataframe(budget_df, use_container_width=True, hide_index=True)
+
+                # Add a complementary summary table for detailed numbers
+                st.markdown("### Tabla de Métricas por Canal")
+                summary_table = conversion_roi_by_channel.copy()
+                summary_table.columns = ['Canal', 'Tasa de Conversión', 'ROI', 'Presupuesto Promedio', 'Ingresos Promedio']
+                summary_table['Tasa de Conversión'] = summary_table['Tasa de Conversión'].map('{:.1%}'.format)
+                summary_table['ROI'] = summary_table['ROI'].map('{:.2f}'.format)
+                summary_table['Presupuesto Promedio'] = summary_table['Presupuesto Promedio'].map('${:,.0f}'.format)
+                summary_table['Ingresos Promedio'] = summary_table['Ingresos Promedio'].map('${:,.0f}'.format)
+
+                st.dataframe(summary_table, use_container_width=True, hide_index=True)
                 
                 # Insights about high-ROI campaigns
                 st.markdown("""
@@ -1884,27 +2241,36 @@ with tab2:
                 """, unsafe_allow_html=True)
                 
                 col1, col2 = st.columns(2)
+
+                email_roi = data[data['channel'] == 'Email']['roi'].mean()
+                b2b_revenue = data[data['target_audience'] == 'B2B']['revenue'].mean()
+                b2c_conv = data[data['target_audience'] == 'B2C']['conversion_rate'].mean()
+                b2b_conv = data[data['target_audience'] == 'B2B']['conversion_rate'].mean()
+                awareness_rev = data[data['type'] == 'Awareness']['revenue'].mean()
+                conversion_roi = data[data['type'] == 'Conversion']['roi'].mean()
+                conversion_margin = data[data['type'] == 'Conversion']['profit_margin'].mean()
+                budget_revenue_corr = data['budget'].corr(data['revenue'])
                 
                 with col1:
                     st.markdown("""
                     ### 📊 Principales Hallazgos
                     
                     1. **Canales más Efectivos**:
-                       - **Email Marketing** destaca como el canal más costo-efectivo con un ROI promedio de 1.96
-                       - **Social Media** genera los mayores ingresos absolutos pero requiere mayores presupuestos
-                    
+                    - **Email Marketing** destaca como el canal más costo-efectivo con un ROI promedio de {email_roi:.2f}
+                    - **Social Media** genera los mayores ingresos absolutos pero requiere mayores presupuestos
+
                     2. **Segmentación de Audiencia**:
-                       - Las campañas dirigidas a **Profesionales (B2B)** generan los ingresos más altos ($52,271)
-                       - La audiencia **B2C** tiene tasas de conversión ligeramente superiores (0.58 vs 0.52)
-                    
+                    - Las campañas dirigidas a **Profesionales (B2B)** generan los ingresos más altos (${b2b_revenue:,.0f})
+                    - La audiencia **B2C** tiene tasas de conversión ligeramente superiores ({b2c_conv:.2f} vs {b2b_conv:.2f})
+
                     3. **Tipos de Campaña**:
-                       - Las campañas de **Awareness** generan los mayores ingresos promedio ($53,909)
-                       - Las campañas de **Conversion** tienen el mejor ROI (1.94) y margen de beneficio (33.4%)
-                    
+                    - Las campañas de **Awareness** generan los mayores ingresos promedio (${awareness_rev:,.0f})
+                    - Las campañas de **Conversion** tienen el mejor ROI ({conversion_roi:.2f}) y margen de beneficio ({conversion_margin:.1f}%)
+
                     4. **Patrones Presupuestarios**:
-                       - Existe una correlación positiva moderada (0.62) entre presupuesto e ingresos
-                       - Las campañas con presupuestos **moderados** (5-20K) suelen tener mejor ROI
-                    
+                    - Existe una correlación positiva moderada ({budget_revenue_corr:.2f}) entre presupuesto e ingresos
+                    - Las campañas con presupuestos **moderados** (5-20K) suelen tener mejor ROI
+                                        
                     5. **Patrones Temporales**:
                        - El **cuarto trimestre** (Q4) muestra el mejor rendimiento general
                        - Las campañas con duración de **100-200 días** tienen el mejor equilibrio entre inversión y retorno
