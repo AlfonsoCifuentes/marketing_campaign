@@ -1286,8 +1286,15 @@ with tab2:
                     hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
                 )
                 
-                # Add ROI reference lines
-                for roi in [1.0, 2.0, 3.0]:
+                # Add ROI reference lines with different colors and thicknesses
+                roi_styles = [
+                    {'roi': 1.0, 'color': '#f39c12', 'width': 1, 'dash': 'dash'},  # Orange-red, thin, dashed
+                    {'roi': 2.0, 'color': '#33FF57', 'width': 2, 'dash': 'dot'},   # Green, medium, dotted
+                    {'roi': 3.0, 'color': '#3498db', 'width': 3, 'dash': 'dashdot'} # Blue, thick, dash-dot
+                ]
+                
+                for style in roi_styles:
+                    roi = style['roi']
                     x_vals = np.linspace(0, data['budget'].max(), 100)
                     y_vals = roi * x_vals
                     
@@ -1296,7 +1303,11 @@ with tab2:
                             x=x_vals,
                             y=y_vals,
                             mode='lines',
-                            line=dict(color='rgba(255, 255, 255, 0.4)', dash='dot'),
+                            line=dict(
+                                color=style['color'], 
+                                width=style['width'], 
+                                dash=style['dash']
+                            ),
                             name=f'ROI {roi}:1',
                             hoverinfo='name'
                         )
