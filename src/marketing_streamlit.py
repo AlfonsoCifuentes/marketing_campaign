@@ -56,13 +56,19 @@ st.markdown(f"""
     
     /* Tabs styling */
     .stTabs [data-baseweb="tab-list"] {{
-        gap: 10px;
+        gap: 4px;
+        width: 100%;
+        background-color: {DARK_BG};
+        border-bottom: 1px solid {SECONDARY_COLOR};
+        display: flex;
     }}
     .stTabs [data-baseweb="tab"] {{
         background-color: {PRIMARY_COLOR};
         border-radius: 5px 5px 0px 0px;
         padding: 10px 20px;
         color: {TEXT_COLOR};
+        flex-grow: 1;
+        text-align: center;
     }}
     .stTabs [data-baseweb="tab-list"] {{
         background-color: {DARK_BG};
@@ -335,8 +341,61 @@ def preprocess_data(df):
 
     return df
 
+# Quitando outliers extremos usando el método IQR
+
+def remove_outliers(df):
+    """Detecta y elimina outliers usando el método IQR en variables clave"""
+    
+    # Columnas numéricas a analizar
+    numerical_cols = ['budget', 'revenue', 'roi', 'conversion_rate', 'net_profit']
+    
+    # Cantidad de filas antes de eliminar outliers
+    rows_before = len(df)
+    
+    print("Eliminando outliers extremos...")
+    
+    # Para cada columna, detectar y eliminar outliers usando IQR
+    for col in numerical_cols:
+        # Verificar que la columna es numérica
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            print(f"Columna {col} no es numérica. Tipo: {df[col].dtype}. Omitiendo...")
+            continue
+            
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        
+        # Consideramos outliers extremos (más de 3 veces el IQR)
+        lower_bound = Q1 - 3 * IQR
+        upper_bound = Q3 + 3 * IQR
+        
+        # Filtrar outliers extremos
+        outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+        
+        if len(outliers) > 0:
+            print(f"  • {len(outliers)} outliers extremos detectados en '{col}'")
+            for _, row in outliers.iterrows():
+                print(f"    - '{row['campaign_name']}': {col} = {row[col]}")
+            
+            # Filtrar el dataframe para excluir estos outliers
+            df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+    
+    # Cantidad de filas eliminadas
+    rows_removed = rows_before - len(df)
+    rows_percentage = (rows_removed / rows_before) * 100
+    print(f"Se eliminaron {rows_removed} registros ({rows_percentage:.2f}% del total) por contener valores atípicos extremos.")
+    
+    return df
+
+
+# Primero, cargar los datos
+data = load_data()
+
 # Apply preprocessing
 data = preprocess_data(data)
+
+# Para usar la función, añade esta línea después del preprocesamiento inicial
+data = remove_outliers(data)
 
 # Create a positive size column for scatter plots
 data['budget_size'] = data['budget'].abs() + 1  # Adding 1 ensures no zeros
@@ -1646,7 +1705,6 @@ with tab2:
                         <li>Las campañas de <strong>Email</strong> muestran la correlación más alta ({channel_corr_df.iloc[0]['Correlación']:.2f}) entre presupuesto e ingresos</li>
                         <li>Las campañas de <strong>{channel_corr_df.iloc[-1]['Canal']}</strong> muestran la correlación más baja ({channel_corr_df.iloc[-1]['Correlación']:.2f}), sugiriendo que otros factores son más importantes</li>
                     </ul>
-                </div>
                 """, unsafe_allow_html=True)
 
 
@@ -2171,28 +2229,38 @@ with tab2:
                 # Relationship between campaign duration and ROI
                 st.markdown("### Relación entre Duración y ROI")
                 
-                fig = px.scatter(
-                    data,
-                    x='campaign_duration',
+                # Create duration bins for better visualization
+                bins = [0, 30, 60, 90, 120, 180, 240, 300, max(data['campaign_duration'])]
+                labels = ['0-30', '31-60', '61-90', '91-120', '121-180', '181-240', '241-300', '300+']
+                data['duration_category'] = pd.cut(data['campaign_duration'], bins=bins, labels=labels)
+
+                # Group data by duration category and channel
+                duration_roi_stats = data.groupby(['duration_category', 'channel']).agg({
+                    'roi': ['mean', 'median', 'std', 'count'],
+                    'budget': 'mean',
+                    'revenue': 'mean'
+                }).reset_index()
+
+                # Flatten multi-level columns
+                duration_roi_stats.columns = ['_'.join(col).strip('_') if col[1] else col[0] for col in duration_roi_stats.columns.values]
+
+                # Create a box plot for ROI by duration category
+                fig = px.box(
+                    data, 
+                    x='duration_category', 
                     y='roi',
                     color='channel',
-                    size='budget_size',  # Changed from 'budget' to 'budget_size'
-                    hover_data=['campaign_name', 'target_audience', 'revenue', 'budget'],
-                    title='ROI vs Duración de Campaña por Canal',
+                    title='ROI por Duración de Campaña y Canal',
                     labels={
-                        'campaign_duration': 'Duración (días)',
+                        'duration_category': 'Duración de Campaña (días)',
                         'roi': 'ROI',
-                        'channel': 'Canal',
-                        'budget': 'Presupuesto',
-                        'campaign_name': 'Campaña',
-                        'target_audience': 'Audiencia',
-                        'revenue': 'Ingresos'
+                        'channel': 'Canal'
                     },
                     color_discrete_sequence=px.colors.sequential.Viridis,
-                    trendline='ols',
-                    trendline_color_override='white'
+                    height=600,
+                    points="all"  # Show all points for more detail
                 )
-                
+
                 # Update layout for dark theme
                 fig.update_layout(
                     plot_bgcolor=MEDIUM_BG,
@@ -2200,9 +2268,10 @@ with tab2:
                     font_color='white',
                     title_font_color=ACCENT_COLOR,
                     legend_title_font_color='white',
-                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR)
+                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+                    xaxis={'categoryorder': 'array', 'categoryarray': labels}  # Ensure correct order
                 )
-                
+
                 # Add horizontal reference line at ROI = 1
                 fig.add_hline(
                     y=1.0,
@@ -2212,8 +2281,51 @@ with tab2:
                     annotation_position="left",
                     annotation_font_color="white"
                 )
-                
+
+                # Add average trend line annotation
+                fig.add_annotation(
+                    text="Las campañas de 91-180 días tienden a tener el mejor ROI",
+                    x=0.5,
+                    y=0.95,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(color="white", size=14),
+                    bgcolor=SECONDARY_COLOR,
+                    bordercolor=ACCENT_COLOR,
+                    borderwidth=1,
+                    borderpad=4
+                )
+
                 st.plotly_chart(fig, use_container_width=True)
+
+                # Add a complementary bar chart showing average ROI by duration
+                avg_roi_by_duration = data.groupby('duration_category')['roi'].mean().reset_index()
+
+                fig2 = px.bar(
+                    avg_roi_by_duration,
+                    x='duration_category',
+                    y='roi',
+                    title='ROI Promedio por Duración de Campaña',
+                    labels={
+                        'duration_category': 'Duración de Campaña (días)',
+                        'roi': 'ROI Promedio'
+                    },
+                    color='roi',
+                    color_continuous_scale=px.colors.sequential.Viridis,
+                    text_auto='.2f'
+                )
+
+                fig2.update_layout(
+                    plot_bgcolor=MEDIUM_BG,
+                    paper_bgcolor=MEDIUM_BG,
+                    font_color='white',
+                    title_font_color=ACCENT_COLOR,
+                    hoverlabel=dict(bgcolor=SECONDARY_COLOR, font_size=12, font_color=TEXT_COLOR),
+                    xaxis={'categoryorder': 'array', 'categoryarray': labels}  # Ensure correct order
+                )
+
+                st.plotly_chart(fig2, use_container_width=True)
                 
                 # Temporal insights
                 st.markdown("""
